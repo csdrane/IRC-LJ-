@@ -1,0 +1,22 @@
+digraph G { 
+  incoming_connection -> ident_check;
+  ident_check -> host_lookup;
+  host_lookup -> nick_request;
+  nick_request -> {
+    MOTD nick_request
+  }
+    
+  MOTD -> process_input;
+    
+  subgraph cluster0 {
+    process_input -> process_output;
+    process_output -> heartbeat [label="every 30s"];
+    heartbeat -> process_input;
+    label = "main loop";
+  }
+  
+  heartbeat -> kill_connection;
+  kill_connection [shape=rect];
+  incoming_connection [shape=rect];
+  ident_check [style=dashed];
+}
