@@ -1,7 +1,8 @@
 (ns irc-server.login-test
   (:refer-clojure :exclude [send])
   (:require [clojure.test :refer :all]
-            [irc-server.login :refer [add-nick! init-conn-loop]]
+            [irc-server.commands :refer [add-nick!]]
+            [irc-server.login :refer [init-conn-loop]]
             [irc-server.socket :refer [send]]
             [irc-server.state :refer [->State]])
   (:import [java.net Socket InetAddress ServerSocket Socket SocketImpl]))
@@ -38,12 +39,12 @@
             @sock state)
            {:host "localhost" :nick nil :state :nick}))
     (is (= (init-conn-loop
-            "foo" (assoc user :state :nick)
+            "NICK foo" (assoc user :state :nick)
             @sock state)
            {:host nil :nick "foo" :state :motd}))
-    (is (not= (add-nick! "foo" (state :users))
+    (is (not= (add-nick! "foo" @sock (state :users))
               "foo"))
-    (is (= (add-nick! "bar" (state :users))
+    (is (= (add-nick! "bar" @sock (state :users))
            "bar"))
     (teardown sock)))
 
