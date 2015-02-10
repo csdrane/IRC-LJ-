@@ -27,7 +27,7 @@
 
 (defn init-conn-loop
   [msg user sock state]
-  (debug msg user sock state)
+  (debug msg user sock state)xb
   (let [state-key (get user :state)
         res (condp = state-key
               :host (lookup-host sock)
@@ -49,4 +49,3 @@
              (println "Hit `init-conn-loop :else`")
              user                  ; return user to sustain loop/recur
              ))))
-

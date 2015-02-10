@@ -37,3 +37,21 @@
          (catch SocketException e))))
 
 ; (-main)
+
+;; Notes based on discussion with Zach 2/10
+;; FYI: may need to buffer received packets if allowed message length is larger than packet size
+;; Could lead to weird bugs if unaddressed.
+
+;; TODO: Merge commands.clj and login.clj. 
+;; Turn init-conn-loop into (do) block
+;; Remove (receive sock) in wrap-new-connect; add (receive) to (get-nick)
+;; Remove loop/recur from wrap-new-connect
+;; Wrap try-catch around do block and have its functions throw exceptions as necessary
+;; to break out of (do).
+;;
+;; E.G.
+;; 
+;; (do
+;;   (lookup-host)
+;;   (get-nick!)
+;;   (motd))
