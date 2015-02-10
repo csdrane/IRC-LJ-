@@ -4,4 +4,4 @@ IRC(lj) is an experimental IRC server written in Clojure. The project is current
 
 ## License
 
-Eventless is licensed under the MIT License. See LICENSE for more information.
+This project is covered under the MIT License. See LICENSE for more information.
