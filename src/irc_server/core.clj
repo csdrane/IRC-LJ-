@@ -1,6 +1,6 @@
 (ns irc-server.core
   (:refer-clojure :exclude [send])
-  (:require [irc-server.login :refer [init-conn-loop]]
+  (:require [irc-server.connection :refer [init-conn-loop]]
             [irc-server.logging :as logging]
             [irc-server.socket :refer [receive send]]
             [irc-server.state :refer [->State]]

@@ -1,7 +1,7 @@
 (ns irc-server.socket
   (:refer-clojure :exclude [send])
   (:require [clojure.java.io :as io])
-  (:import [java.net ServerSocket]))
+ (:import [java.net ServerSocket]))
 
 (defn receive
   "Read a line of textual data from the given socket."

@@ -1,8 +1,7 @@
-(ns irc-server.login-test
+(ns irc-server.connection-test
   (:refer-clojure :exclude [send])
   (:require [clojure.test :refer :all]
-            [irc-server.commands :refer [add-nick!]]
-            [irc-server.login :refer [init-conn-loop]]
+            [irc-server.connection :refer [add-nick! init-conn-loop parse-command]]
             [irc-server.socket :refer [send]]
             [irc-server.state :refer [->State]])
   (:import [java.net Socket InetAddress ServerSocket Socket SocketImpl]))
@@ -48,3 +47,8 @@
            "bar"))
     (teardown sock)))
 
+(deftest parse-commands
+  (is (= (parse-command "NICK my-nick")
+         ["NICK" "my-nick"])
+      (= (parse-command "QUIT A default quit message.")
+         ["QUIT" "A default quit message."])))
