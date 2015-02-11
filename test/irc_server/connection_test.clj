@@ -1,7 +1,7 @@
 (ns irc-server.connection-test
   (:refer-clojure :exclude [send])
   (:require [clojure.test :refer :all]
-            [irc-server.connection :refer [add-nick! init-conn-loop parse-command]]
+            [irc-server.connection :refer [add-nick! assign-nick init-conn-loop lookup-host parse-command]]
             [irc-server.socket :refer [send]]
             [irc-server.state :refer [->State]])
   (:import [java.net Socket InetAddress ServerSocket Socket SocketImpl]))
@@ -33,19 +33,14 @@
                        (ref {}))
         user {:host nil :nick nil :state :host}]
     (setup sock)
-    (is (= (init-conn-loop
-            nil user
-            @sock state)
-           {:host "localhost" :nick nil :state :nick}))
-    (is (= (init-conn-loop
-            "NICK foo" (assoc user :state :nick)
-            @sock state)
-           {:host nil :nick "foo" :state :motd}))
-    (is (not= (add-nick! "foo" @sock (state :users))
-              "foo"))
-    (is (= (add-nick! "bar" @sock (state :users))
-           "bar"))
+    (is (= (lookup-host @sock) "localhost"))
+    (is (= (add-nick! "foo" @sock (state :users))
+           "foo"))
+    (is (testing "Testing mutable state"
+          (not= (add-nick! "foo" @sock (state :users))
+                "foo")))
     (teardown sock)))
+
 
 (deftest parse-commands
   (is (= (parse-command "NICK my-nick")

@@ -1,12 +1,15 @@
 (ns irc-server.socket
   (:refer-clojure :exclude [send])
-  (:require [clojure.java.io :as io])
- (:import [java.net ServerSocket]))
+  (:require [clojure.java.io :as io]
+            [taoensso.timbre :as timbre])
+  (:import [java.net ServerSocket]))
+
+(timbre/refer-timbre) ; Provides useful Timbre aliases in this ns
 
 (defn receive
   "Read a line of textual data from the given socket."
   [socket]
-  (.readLine (io/reader socket)))
+  (spy (.readLine (io/reader socket))))
 
 (defn send
   "Send the given string message out over the given socket."

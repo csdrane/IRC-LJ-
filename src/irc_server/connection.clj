@@ -1,6 +1,6 @@
 (ns irc-server.connection
   (:refer-clojure :exclude [send])
-  (:require [irc-server.socket :refer [send]]
+  (:require [irc-server.socket :refer [send receive]]
             [clojure.string :refer [split]]
             [taoensso.timbre :as timbre]))
 
@@ -52,36 +52,27 @@
     (send sock (str "Your host has been identified as " host "\n"))
     host))
 
-(defn send-motd
+(defn assign-nick [host sock state]
+  (loop []
+    (let [[command nick] (parse-command (receive sock))]
+      (cond
+       (not= command "NICK") (do (send sock (str "Invalid command: " command "\n"))
+                                 (recur))
+       (not (valid? nick)) (do (send sock (str "Invalid nick: " nick "\n"))
+                               (recur))
+       :else (add-nick! nick sock state)))))
+
+(defn motd
   "Send MOTD to new connection."
   [sock]
   (send sock "Hello, world!"))
 
 ;; FIX: server discards input (e.g. NICK request) made during host lookup step.
 
-(defn init-conn-loop
-  [msg user sock state]
-  (debug msg user sock state)
-  (let [state-key (get user :state)
-        res (condp = state-key
-              :host (lookup-host sock)
-              :nick (let [[command args] (parse-command msg)]
-                      (if (= command "NICK")
-                        (spy (add-nick! args sock (state :users)))))
-              nil)]
-    (cond
-     (= state-key :host)
-     (assoc user :host res :state :nick)
-     (and (= state-key :nick)
-          (not= res nil))
-     (do
-       (assoc user :nick res :state :motd))
-     (= state-key :motd)
-     (do
-       (send-motd sock))                ; chat loop
-     :else (do
-             (println "Hit `init-conn-loop :else`")
-             user                  ; return user to sustain loop/recur
-             ))))
+(defn connect-loop [sock state])
 
-
+(defn new-connect [sock state]
+  (-> (lookup-host sock)
+      (assign-nick sock (state :users)))
+  (motd sock)
+  (connect-loop sock state))
