@@ -1,7 +1,7 @@
 (ns irc-server.connection-test
   (:refer-clojure :exclude [send])
   (:require [clojure.test :refer :all]
-            [irc-server.connection :refer [add-nick! assign-nick init-conn-loop lookup-host parse-command]]
+            [irc-server.connection :refer [add-nick! assign-nick lookup-host parse-command]]
             [irc-server.socket :refer [send]]
             [irc-server.state :refer [->State]])
   (:import [java.net Socket InetAddress ServerSocket Socket SocketImpl]))

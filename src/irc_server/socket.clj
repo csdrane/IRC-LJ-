@@ -9,12 +9,14 @@
 (defn receive
   "Read a line of textual data from the given socket."
   [socket]
-  (spy (.readLine (io/reader socket))))
+  (spy (.readLine (io/reader socket))
+       ))
 
 (defn send
   "Send the given string message out over the given socket."
   [socket msg]
-  (let [writer (io/writer socket)]
-    (.write writer msg)
-    (.flush writer)))
+  (try (let [writer (io/writer socket)]
+         (.write writer msg)
+         (.flush writer))
+       (catch Exception e (str "Exception: " e))))
 

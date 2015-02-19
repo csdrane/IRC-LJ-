@@ -1,20 +1,21 @@
 (ns irc-server.core
   (:refer-clojure :exclude [send])
-  (:require [irc-server.connection :refer [init-conn-loop new-connect]]
+  (:require [irc-server.connection :refer [coordinator new-connect]]
             [irc-server.logging :as logging]
             [irc-server.socket :refer [receive send]]
             [irc-server.state :refer [->State]]
             [clojure.java.io :as io]
+            [clojure.core.async :refer [>! <! chan go]]
             [taoensso.timbre :as timbre])
   (:import [java.net InetAddress ServerSocket SocketException]))
 
 (timbre/refer-timbre) ; Provides useful Timbre aliases in this ns
 (logging/init)
 
-(defn get-connection [port state]
+(defn get-connection [port state server-chan]
   (with-open [server-sock (ServerSocket. port)
               sock (.accept server-sock)]
-    (new-connect sock state)))
+    (new-connect sock state server-chan)))
 
 ;; We wrap get-connection in try/catch to prevent a SocketException from being thrown
 ;; when a client unexpectedly disconnects.
@@ -25,29 +26,14 @@
 (defn -main []
   (let [port 6667
         state (->State (ref {})
-                       (ref {}))]
-    (try (get-connection port state)
+                       (ref {}))
+        server-chan (chan)]
+    (spy (coordinator server-chan))
+    (try (get-connection port state server-chan)
          (catch SocketException e))))
 
 ; (-main)
 
-;; Notes based on discussion with Zach 2/10
 ;; FYI: may need to buffer received packets if allowed message length is larger than packet size
 ;; Could lead to weird bugs if unaddressed.
-
-;; DONE merge commands.clj and login.clj. 
-;; DONE turn init-conn-loop into (do) block
-;; DONE remove (receive sock) in wrap-new-connect; add (receive) to (get-nick)
-;; DONE remove loop/recur from wrap-new-connect
-;;
-;; Wrap try-catch around do block and have its functions throw exceptions as necessary
-;; to break out of (do).
-;;
-;; E.G.
-;; 
-;; (do
-;;   (lookup-host)
-;;   (get-nick!)
-;;   (motd))
-
 ;; TODO add permissions to :users to regulate what functions they have access to

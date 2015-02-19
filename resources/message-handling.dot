@@ -1,0 +1,31 @@
+digraph G {
+  subgraph cluster0 {
+    send_msg;
+    receive_msgs;
+    color=black;
+    label = "client";
+  }
+
+  subgraph cluster1 {
+    send_msg -> get_messages;
+    get_messages -> parse_msg [dir=both];
+    get_messages -> exec_client_cmds;
+    concentrate=true;
+    label = "client thread";
+    labeljust = r;
+    color=black; 
+  }
+  subgraph cluster2 {
+    exec_client_cmds -> server_coordinator;
+    get_messages -> server_coordinator;
+    server_coordinator -> update_client;
+    update_client -> send_msgs;
+    send_msgs -> receive_msgs;
+    label = "server thread";
+    labeljust = r;
+    labelloc = b;
+    color=black;
+  }
+  splines=ortho;
+}
+

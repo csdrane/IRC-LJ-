@@ -11,6 +11,7 @@
 *.DS_Store
 *.emacs*
 *.org*
+*.png
 *.secret
 *.txt
 pom.xml
