@@ -69,7 +69,7 @@
   [sock]
   (send sock "Hello, world!"))
 
-(defn coordinator
+(defn server-coordinator
   "Function takes one argument, representing core.async channel.
   Coordinator receives messages from clients and dispatches."
   [c]
@@ -90,16 +90,16 @@
 
 (defn exec-client-cmds
   "Not sure yet how this is going to work. Either: 
-  1) Messages should be parsed within connect-loop scope. 
+  1) Messages should be parsed within client-listener scope. 
   2) Coordinator tells exec-client-cmds to perform action. Or, 
   3) function is unnecessary / should be located within Coordinator 
   context."
   [sock])
 
-(defn connect-loop
-  "Connect-loop spawns the concurrent processes of listening for
+(defn client-listener
+  "client-listener spawns the concurrent processes of listening for
   client input, sending messages to client, and evaluating client
-  commands. Connect-loop is not actually a loop, but rather the
+  commands. client-listener is not actually a loop, but rather the
   functions it calls are wrapped in `go-loop`. This style is a product
   of using core.async."
   [sock state server-chan]
@@ -115,4 +115,4 @@
   (-> (lookup-host sock)
       (assign-nick sock (state :users)))
   (motd sock)
-  (connect-loop sock state server-chan))
+  (client-listener sock state server-chan))

@@ -1,30 +1,35 @@
 digraph G {
   subgraph cluster0 {
+    style=filled;
+    color=lightgrey;
+    node [style=filled, color=white];
     send_msg;
     receive_msgs;
-    color=black;
     label = "client";
   }
 
   subgraph cluster1 {
-    send_msg -> get_messages;
-    get_messages -> parse_msg [dir=both];
-    get_messages -> exec_client_cmds;
+    handle_msg [style=dashed];
+    send_msg -> client_listener [style=dashed];
+    client_listener -> parse_msg [dir=both];
+    client_listener -> handle_msg [style=dashed];
+    client_listener -> exec_client_cmds [style=dashed];
     concentrate=true;
     label = "client thread";
     labeljust = r;
-    color=black; 
+    color=darkgreen; 
   }
   subgraph cluster2 {
-    exec_client_cmds -> server_coordinator;
-    get_messages -> server_coordinator;
-    server_coordinator -> update_client;
-    update_client -> send_msgs;
+    exec_client_cmds -> server_coordinator [style=dashed];
+    handle_msg -> server_coordinator [style=dashed];
+    server_coordinator -> update_clients [style=dashed];
+    server_coordinator -> update_state [style=dashed, dir=both];
+    update_clients -> send_msgs;
     send_msgs -> receive_msgs;
     label = "server thread";
-    labeljust = r;
-    labelloc = b;
-    color=black;
+    labeljust = l;
+    labelloc = u;
+    color=blue;
   }
   splines=ortho;
 }

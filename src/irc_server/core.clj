@@ -1,6 +1,6 @@
 (ns irc-server.core
   (:refer-clojure :exclude [send])
-  (:require [irc-server.connection :refer [coordinator new-connect]]
+  (:require [irc-server.connection :refer [server-coordinator new-connect]]
             [irc-server.logging :as logging]
             [irc-server.socket :refer [receive send]]
             [irc-server.state :refer [->State]]
@@ -28,7 +28,7 @@
         state (->State (ref {})
                        (ref {}))
         server-chan (chan)]
-    (spy (coordinator server-chan))
+    (spy (server-coordinator server-chan))
     (try (get-connection port state server-chan)
          (catch SocketException e))))
 
