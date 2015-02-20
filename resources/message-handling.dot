@@ -9,19 +9,17 @@ digraph G {
   }
 
   subgraph cluster1 {
-    handle_msg [style=dashed];
-    send_msg -> client_listener [style=dashed];
-    client_listener -> parse_msg [dir=both];
-    client_listener -> handle_msg [style=dashed];
-    client_listener -> exec_client_cmds [style=dashed];
+    send_msg -> client_listener;
+    client_listener -> parse_msg;
+    parse_msg -> exec_client_cmds_wrapper;
     concentrate=true;
     label = "client thread";
-    labeljust = r;
+    labeljust = l;
     color=darkgreen; 
   }
   subgraph cluster2 {
+    exec_client_cmds_wrapper -> exec_client_cmds;
     exec_client_cmds -> server_coordinator [style=dashed];
-    handle_msg -> server_coordinator [style=dashed];
     server_coordinator -> update_clients [style=dashed];
     server_coordinator -> update_state [style=dashed, dir=both];
     update_clients -> send_msgs;
