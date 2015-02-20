@@ -15,6 +15,7 @@
 (defn get-connection [port state server-chan]
   (with-open [server-sock (ServerSocket. port)
               sock (.accept server-sock)]
+;; TODO new connection should spawn a new thread
     (new-connect sock state server-chan)))
 
 ;; We wrap get-connection in try/catch to prevent a SocketException from being thrown
@@ -28,7 +29,7 @@
         state (->State (ref {})
                        (ref {}))
         server-chan (chan)]
-    (spy (server-coordinator server-chan))
+    (spy (server-coordinator state server-chan))
     (try (get-connection port state server-chan)
          (catch SocketException e))))
 

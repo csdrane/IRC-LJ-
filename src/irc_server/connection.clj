@@ -15,9 +15,9 @@
 (defn lookup [command]
   (get command-table (keyword command)))
 
-(defn parse-command [msg]
+(defn parse-command [msg user]
   (let [[command args & more] (split msg #" " 2)]
-    [command args]))
+    {:cmd [command args] :user user}))
 
 (defn dispatch-command [[command args]]
   [command args]
@@ -69,50 +69,59 @@
   [sock]
   (send sock "Hello, world!"))
 
-(defn server-coordinator
-  "Function takes one argument, representing core.async channel.
-  Coordinator receives messages from clients and dispatches."
-  [c]
+(defn update-clients
+  "Receive from Coordinator da message destined for client. Sends to
+  client."
+  [updates]
   (go-loop []
-    (let [msg (<! c)]
+    (let [msg (<! updates)]
       (println msg))
     (recur)))
 
-(defn get-messages
-  "Receives messages from client; sends them to coordinator."
-  [sock server-chan]
-  (go-loop [] (>! server-chan "a message")))
-
-(defn update-client
-  "Receive from Coordinator message destined for client. Sends to
-  client."
-  [sock])
+(defn update-state
+  "Merges updates into global state."
+  [state updates])
 
 (defn exec-client-cmds
-  "Not sure yet how this is going to work. Either: 
-  1) Messages should be parsed within client-listener scope. 
-  2) Coordinator tells exec-client-cmds to perform action. Or, 
-  3) function is unnecessary / should be located within Coordinator 
-  context."
-  [sock])
+  "Receives command from client thread and evaluates."
+  [state c])
 
+(defn server-coordinator
+  "Function takes one argument, representing core.async channel.
+  Coordinator receives messages from clients and dispatches."
+  [state c]
+  (let [updates nil]
+   (exec-client-cmds state c)
+   (update-clients updates)
+   (update-state state updates)))
+
+(defn get-message
+  "Receives message from client."
+  [sock]
+  (receive sock))
+
+(defn exec-client-cmds-wrapper
+  "Receives parsed command and sends to server thread."
+  [cmd c]
+  (>! c cmd))
+
+;; TODO wrap in loop/recur
+;; How will we kill loop when socket connection dies?
 (defn client-listener
-  "client-listener spawns the concurrent processes of listening for
-  client input, sending messages to client, and evaluating client
-  commands. client-listener is not actually a loop, but rather the
-  functions it calls are wrapped in `go-loop`. This style is a product
-  of using core.async."
-  [sock state server-chan]
+  "Blocks client thread while listening for new messages. New messages
+  are parsed and then sent to exec-client-cmds to be executed."
+  [user sock state server-chan]
   (let [quit (atom false)]
-    (spy (get-messages sock server-chan))
-    (update-client sock)
-    (exec-client-cmds sock)))
+    (->  (get-message sock)
+         (parse-command user)
+         (exec-client-cmds-wrapper server-chan))))
 
 (defn new-connect
   "Performs connection actions (e.g. host lookup, nick acquisition,
   etc.) and then places client in connection loop."
   [sock state server-chan]
-  (-> (lookup-host sock)
-      (assign-nick sock (state :users)))
-  (motd sock)
-  (client-listener sock state server-chan))
+  (let [host (lookup-host sock)
+        nick (assign-nick sock (state :users))]
+    (motd sock)
+    (client-listener nick sock state server-chan)))
+
