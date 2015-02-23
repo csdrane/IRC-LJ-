@@ -1,7 +1,7 @@
 (ns irc-server.connection
   (:refer-clojure :exclude [send])
   (:require [irc-server.socket :refer [send receive]]
-            [clojure.core.async :refer [<! >! go go-loop]]
+            [clojure.core.async :refer [<! >! alts! chan go go-loop]]
             [clojure.string :refer [split]]
             [taoensso.timbre :as timbre]))
 
@@ -54,14 +54,14 @@
     host))
 
 (defn assign-nick [host sock state]
-  (try (loop []
-         (let [[command nick] (parse-command (receive sock))]
-           (cond
-            (not= command "NICK") (do (send sock (str "Invalid command: " command "\n"))
+  (try (spy (loop []
+          (let [{[command nick] :cmd} (parse-command (receive sock) nil)] ; username is nil as not yet assigned
+            (cond
+              (not= command "NICK") (do (send sock (str "Invalid command: " command "\n"))
+                                        (recur))
+              (not (valid? nick)) (do (send sock (str "Invalid nick: " nick "\n"))
                                       (recur))
-            (not (valid? nick)) (do (send sock (str "Invalid nick: " nick "\n"))
-                                    (recur))
-            :else (add-nick! nick sock state))))
+              :else (add-nick! nick sock state)))))
        (catch Exception e (str "Exception: " e))))
 
 (defn motd
@@ -107,21 +107,30 @@
 
 ;; TODO wrap in loop/recur
 ;; How will we kill loop when socket connection dies?
+;; -> Could use async channel. Pass message to set recur to false
+;; -> Might make sense to reference channel in user's state; that way won't have to pass as an argument in every function involving user
 (defn client-listener
   "Blocks client thread while listening for new messages. New messages
   are parsed and then sent to exec-client-cmds to be executed."
   [user sock state server-chan]
-  (let [quit (atom false)]
-    (->  (get-message sock)
-         (parse-command user)
-         (exec-client-cmds-wrapper server-chan))))
+  (loop []
+
+    ;; u is a channel that will be part of user's state. when in other
+    ;; parts of the code, a quitting event occurs, a message will be
+    ;; sent to `u` setting keep-alive? false
+    
+    (let [u (chan) ; temporary var until move to user state
+          keep-alive? (go (alts! [u] :default true))]
+      (->  (get-message sock)
+           (parse-command user)
+           (exec-client-cmds-wrapper server-chan)))))
 
 (defn new-connect
   "Performs connection actions (e.g. host lookup, nick acquisition,
   etc.) and then places client in connection loop."
   [sock state server-chan]
   (let [host (lookup-host sock)
-        nick (assign-nick sock (state :users))]
+        nick (assign-nick host sock (state :users))]
     (motd sock)
     (client-listener nick sock state server-chan)))
 

@@ -41,9 +41,11 @@
                 "foo")))
     (teardown sock)))
 
-
 (deftest parse-commands
-  (is (= (parse-command "NICK my-nick")
-         ["NICK" "my-nick"])
-      (= (parse-command "QUIT A default quit message.")
-         ["QUIT" "A default quit message."])))
+  (is (= (parse-command "NICK my-nick" "user")
+         {:cmd ["NICK" "my-nick"]
+          :user "user"})
+      (= (parse-command "QUIT A default quit message." "user")
+         {:cmd ["QUIT" "A default quit message."]
+          :user "user"})))
+
