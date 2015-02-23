@@ -1,0 +1,45 @@
+digraph g {
+  graph [
+         rankdir = "LR"
+         ];
+  node [
+        fontsize = "16"
+        shape = "ellipse"
+        ];
+  edge [
+        ];
+  "head" [
+           label = "shared \nstate",
+           fillcolor = "yellow",
+           style = "rounded,filled",
+           shape = "diamond"];
+  "state" [
+           label = "{{<f0> :users | <f1> :channels} |
+                     {<f2> #\{nick\}| <f3> #\{channel\}}}"
+           shape = "record"
+           ];
+  "users" [
+           label = "{{<f0> :nick |<f1> :socket |<f2> :hostname |<f3> :channels | <f8> :kill-chan } | 
+                      {<f4> string | <f5> socketRef | <f6> string | <f7> hashset | <f8> channel}}",
+           shape = "record"
+         ];
+  "channels" [
+              label = "{{<f0> :channel_name | <f1> :attrs | <f2> :users } |
+                        {<f3> string | <f4> #\{attrs\} | <f5> #\{nick\} }}",                                 shape = "record"
+              ];
+  "channel_attrs" [
+                   label = "{{<f0> :t | <f1> :l | <f2> :k | etc.} | 
+                             {<f3> bool | <f4> integer | <f5> string |n }}",
+                   shape = "record"
+                   ];
+  "channel_users" [
+                   label = "{{<f0> :nick | <f1> :o | <f2> :v } |
+                             {<f3> string | <f4> bool | <f5> bool }}",
+                   shape = "record"
+                   ];
+  "head" -> "state";
+  "state":f2 -> "users";
+  "state":f3 -> "channels";
+  "channels":f4 -> "channel_attrs";
+  "channels":f5 -> "channel_users";
+}
