@@ -1,28 +1,33 @@
 (ns irc-server.connection
   (:refer-clojure :exclude [send])
   (:require [irc-server.socket :refer [send receive]]
-            [clojure.core.async :refer [<! >! alts! chan go go-loop]]
+            [clojure.core.async :refer [<! <!! >! >!! alts! chan go go-loop]]
             [clojure.string :refer [split]]
             [taoensso.timbre :as timbre]))
 
 (timbre/refer-timbre)
 
-(declare add-nick!)
+(declare add-nick! join-channel!)
 
 (def command-table
-  {:NICK add-nick!})
+  {:NICK add-nick!
+   :JOIN join-channel!})
 
 (defn lookup [command]
   (get command-table (keyword command)))
 
+;; FIX not parsing multiple args correctly
 (defn parse-command [msg user]
   (let [[command args & more] (split msg #" " 2)]
     {:cmd [command args] :user user}))
 
-(defn dispatch-command [[command args]]
-  [command args]
-  (if-let [f (lookup command)]
-    (f args)))
+(defn dispatch-command 
+  ([[command args]]
+   (if-let [f (lookup command)]
+     (f args)))
+  ([[command args] state]
+   (if-let [f (lookup command)]
+     (f args state))))
 
 (defn valid? [nick]
   (re-matches #"[A-Za-z]{1}[A-Za-z0-9_-`\\\[\]\{\}^\|]{0,11}" nick))
@@ -41,6 +46,30 @@
                       "Please pick another.\n"))
       nil)))
 
+(defn join-channel!
+  "Checks if channel already exists. If so, connects user. If not,
+  creates it and then connects user.
+
+  When the channel already exists, we will add user to the list of
+  channel's undecorated users. We will have to reflect this in both
+  the individual channel's data structure and the user's (the hashset
+  joined channels).
+
+  When the channel does not already exist, we must add to the user's
+  channel hashset, create a hashmap entry for the channel in the
+  channels hashmap, and then give the user operator permissions.
+
+  After these state change activities, we will send the user the
+  current topic, if it exists, prefixed by error code 332 RPL_TOPIC.
+  If not, we will simply send error code 331 RPL_NOTOPIC."
+  
+  ;; FIX let's forget about args for now.
+  ;; FIX need to add User to args
+  [[chan & args] state]
+  (info (str "User attempted to join channel " chan))
+  (if-not (channel? chan)
+    (create-channel )))
+
 (defn check-ident
   "May not implement."
   [sock])
@@ -54,14 +83,16 @@
     host))
 
 (defn assign-nick [host sock state]
-  (try (spy (loop []
-          (let [{[command nick] :cmd} (parse-command (receive sock) nil)] ; username is nil as not yet assigned
-            (cond
-              (not= command "NICK") (do (send sock (str "Invalid command: " command "\n"))
-                                        (recur))
-              (not (valid? nick)) (do (send sock (str "Invalid nick: " nick "\n"))
-                                      (recur))
-              :else (add-nick! nick sock state)))))
+  (try (loop []
+                                   ; username is nil as not yet assigned
+         (let [{[command nick] :cmd} (parse-command (receive sock) nil)]
+
+           (cond
+             (not= command "NICK") (do (send sock (str "Invalid command: " command "\n"))
+                                       (recur))
+             (not (valid? nick)) (do (send sock (str "Invalid nick: " nick "\n"))
+                                     (recur))
+             :else (add-nick! nick sock state))))
        (catch Exception e (str "Exception: " e))))
 
 (defn motd
@@ -73,7 +104,7 @@
   "Receive from Coordinator da message destined for client. Sends to
   client."
   [updates]
-  (go-loop []
+  #_(go-loop []
     (let [msg (<! updates)]
       (println msg))
     (recur)))
@@ -84,16 +115,20 @@
 
 (defn exec-client-cmds
   "Receives command from client thread and evaluates."
-  [state c])
+  [state c]
+  (let [{[cmd & args] :cmd user :user} (<!! c)]
+    (spy (dispatch-command [cmd args] state))))
 
 (defn server-coordinator
   "Function takes one argument, representing core.async channel.
   Coordinator receives messages from clients and dispatches."
   [state c]
-  (let [updates nil]
-   (exec-client-cmds state c)
-   (update-clients updates)
-   (update-state state updates)))
+  (go-loop []
+    (let [updates nil]
+      (exec-client-cmds state c)
+      (update-clients updates)
+      (update-state state updates))
+    (recur)))
 
 (defn get-message
   "Receives message from client."
@@ -103,7 +138,7 @@
 (defn exec-client-cmds-wrapper
   "Receives parsed command and sends to server thread."
   [cmd c]
-  (>! c cmd))
+  (go (>! c cmd)))
 
 ;; TODO wrap in loop/recur
 ;; How will we kill loop when socket connection dies?
@@ -119,11 +154,12 @@
     ;; parts of the code, a quitting event occurs, a message will be
     ;; sent to `u` setting keep-alive? false
     
-    (let [u (chan) ; temporary var until move to user state
+    (let [u (chan 1) ; temporary var until move to user state
           keep-alive? (go (alts! [u] :default true))]
       (->  (get-message sock)
            (parse-command user)
-           (exec-client-cmds-wrapper server-chan)))))
+           (exec-client-cmds-wrapper server-chan))
+      (recur))))
 
 (defn new-connect
   "Performs connection actions (e.g. host lookup, nick acquisition,

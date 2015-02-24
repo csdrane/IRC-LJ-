@@ -29,7 +29,7 @@
         state (->State (ref {})
                        (ref {}))
         server-chan (chan)]
-    (spy (server-coordinator state server-chan))
+    (server-coordinator state server-chan)
     (try (get-connection port state server-chan)
          (catch SocketException e))))
 
