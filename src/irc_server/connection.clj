@@ -7,11 +7,11 @@
 
 (timbre/refer-timbre)
 
-(declare add-nick! join-channel!)
+(declare add-nick! join-channel)
 
 (def command-table
   {:NICK add-nick!
-   :JOIN join-channel!})
+   :JOIN join-channel})
 
 (defn lookup [command]
   (get command-table (keyword command)))
@@ -46,9 +46,58 @@
                       "Please pick another.\n"))
       nil)))
 
-(defn join-channel!
-  "Checks if channel already exists. If so, connects user. If not,
-  creates it and then connects user.
+(defn channels 
+  "Returns channels hashmap from state."
+  [state]
+  (get state :channels))
+
+(defn channel?
+  "Returns true if chan exists as key within channels hashmap of
+  state."
+  [chan state]
+  (contains? (channels state) chan))
+
+(defn user-on-channel?
+  "Returns true if user within state has chan within its channels
+  hashset."
+  [user chan state]
+  (let [users @(get state :users)]
+    (contains? (get-in users [user :channels ])
+               chan)))
+
+(defn channel-exists?
+  "Returns true if chan exists as key within channels hashset in state."
+  [chan state]
+  (contains? @(get state :channels) chan))
+
+;; TODO
+(defn send-error
+  "Send error code and args to dispatcher. Args represents a hashmap
+  containing required fields for a particular error code."
+  [code args])
+
+(defn add-channel-to-user!
+  "Updates state by adding user both to users list of channel, and
+  channel to user's active channel list. Note that the order of args
+  user and chan is flipped from that in create-channel!"
+  [user chan state]
+  (dosync (alter (get state :users) update-in [user :channels] conj chan)
+          (alter (get state :channels) assoc-in [chan :users user] {:v false, :o false})))
+
+(defn create-channel!
+  "Updates state by adding chan as key to channels hashmap and adding
+  channel to user's active channel list."
+  [chan user state]
+  (let [chan-template {:attrs {}
+                       :users {user {:o true
+                                     :v true}}}]
+    (dosync (alter (get state :channels) assoc chan chan-template)
+            (alter (get state :users) update-in [user :channels] conj chan))))
+
+(defn join-channel
+  "First, checks if user is already on channel. If so, does nothing.
+  Next, checks if channel already exists. If so, connects user. If
+  not, creates it and then connects user.
 
   When the channel already exists, we will add user to the list of
   channel's undecorated users. We will have to reflect this in both
@@ -67,8 +116,21 @@
   ;; FIX need to add User to args
   [[chan & args] state]
   (info (str "User attempted to join channel " chan))
-  (if-not (channel? chan)
-    (create-channel )))
+  (let [user nil]                       ; FIX temporary
+    (cond
+      (user-on-channel? user chan state) (send-error 443 {:user user :chan chan})
+                                        ;what about when not invited / key req'd?
+                                        ;those send-channel-* statements need to be conditional
+      (channel-exists? chan state) (do (add-channel-to-user! user chan)
+                                       ;; (send-channel-users)
+                                       ;; (send-channel-topic)
+                                       ;; (send-channel-modes)
+                                       )
+      :else (do (create-channel! chan user state)
+                ;; (send-channel-users)
+                ;; (send-channel-topic)
+                ;; (send-channel-modes)
+                ))))
 
 (defn check-ident
   "May not implement."
@@ -95,6 +157,28 @@
              :else (add-nick! nick sock state))))
        (catch Exception e (str "Exception: " e))))
 
+(defn assign-user-details!
+  ; Nick is first argument of args
+  [args state])
+
+(defn assign-user-details [nick sock state]
+  (try (loop []
+         ;; TODO
+         ;; parse-command needs to allow last argument (which must
+         ;; begin with a colon (':'), to contain multiple words
+         (let [{[command & args] :cmd} (parse-command (receive sock) nick)]
+           (cond
+             (not= command "USER") (do (send sock (str "Invalid command: " command "\n"))
+                                       (recur))
+             (or (not= (count args) 4)
+                 (not= (first (nth args 3)) ; first character of last
+                       \:))
+             (do (send sock (str "Invalid arguments supplied to command: " command "\n"))
+                 (recur))
+             :else (assign-user-details! nick args state))))
+       (catch Exception e (str "Exception: " e)))) ; argument must begin with a \:
+
+;; FIX
 (defn motd
   "Send MOTD to new connection."
   [sock]
@@ -161,12 +245,16 @@
            (exec-client-cmds-wrapper server-chan))
       (recur))))
 
+;; FIX - I think it is unnecessary for a NICK request to follow a USER
+;; request. The below may lead to bugs. The code should be agnostic to
+;; which command comes first.
 (defn new-connect
   "Performs connection actions (e.g. host lookup, nick acquisition,
   etc.) and then places client in connection loop."
   [sock state server-chan]
   (let [host (lookup-host sock)
-        nick (assign-nick host sock (state :users))]
-    (motd sock)
+        nick (assign-nick host sock (state :users))
+        user (assign-user-details nick sock (state :users))]
+    (spy (motd sock))
     (client-listener nick sock state server-chan)))
 

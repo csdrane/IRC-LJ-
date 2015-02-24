@@ -1,7 +1,10 @@
 (ns irc-server.connection-test
   (:refer-clojure :exclude [send])
   (:require [clojure.test :refer :all]
-            [irc-server.connection :refer [add-nick! assign-nick lookup-host parse-command]]
+            [irc-server.connection :refer [add-nick! add-channel-to-user!
+                                           assign-nick channel-exists?
+                                           create-channel! lookup-host
+                                           parse-command user-on-channel?]]
             [irc-server.socket :refer [send]]
             [irc-server.state :refer [->State]])
   (:import [java.net Socket InetAddress ServerSocket Socket SocketImpl]))
@@ -31,7 +34,7 @@
 (deftest new-connect
   (let [state (->State (ref {})
                        (ref {}))
-        user {:host nil :nick nil :state :host}]
+        user {:host nil :nick nil}]
     (setup sock)
     (is (= (lookup-host @sock) "localhost"))
     (is (= (add-nick! "foo" @sock (state :users))
@@ -48,4 +51,51 @@
       (= (parse-command "QUIT A default quit message." "user")
          {:cmd ["QUIT" "A default quit message."]
           :user "user"})))
+
+(deftest join-channel
+  (let [state (->State (ref {"user" {:socket nil
+                                     :hostname nil
+                                     :channels #{}
+                                     :kill-chan nil}})
+                       (ref {}))
+        new-state (->State  (ref {"user" {:socket nil
+                                          :hostname nil
+                                          :channels #{"foo"}
+                                          :kill-chan nil}})
+                            (ref {"foo" {:attrs {}
+                                         :users {"user" {:v true, :o true}}}}))]
+    (create-channel! "foo" "user" state)
+    (testing "Testing mutable state re: channel creation"
+      (is (= (deref (get state :channels))
+             (deref (get new-state :channels)))
+          (= (deref (get state :users))
+             (deref (get new-state :users))))))
+  (let [state (->State (ref {"user" {:socket nil
+                                     :hostname nil
+                                     :channels #{}
+                                     :kill-chan nil}})
+                       (ref {"foo" {:attrs {}
+                                    :users {"other-user" {:v true, :o true}}}}))
+        new-state (->State (ref {"user" {:socket nil
+                                         :hostname nil
+                                         :channels #{"foo"}
+                                         :kill-chan nil}})
+                           (ref {"foo" {:attrs {}
+                                        :users {"user" {:v false, :o false}
+                                                "other-user" {:v true, :o true}}}}))]
+    (add-channel-to-user! "user" "foo" state)
+    (testing "Testing mutable state re: channel creation"
+      (is (= (deref (get state :channels))
+             (deref (get new-state :channels)))
+          (= (deref (get state :users))
+             (deref (get new-state :users)))))
+    (testing "channel-exists?"
+      (is (= (channel-exists? "foo" new-state)
+             true)
+          (not= (channel-exists? "bar" new-state))))
+    (testing "user-on-channel?"
+      (is (true? (user-on-channel? "user" "foo" new-state))
+          (false? (user-on-channel? "user" "bar" new-state))))))
+
+
 
