@@ -2,10 +2,11 @@
   (:refer-clojure :exclude [send])
   (:require [clojure.test :refer :all]
             [irc-server.connection :refer [add-nick! add-channel-to-user!
-                                           assign-nick channel-exists?
-                                           create-channel! lookup-host
-                                           parse-command user-on-channel?]]
-            [irc-server.socket :refer [send]]
+                                           assign-nick assign-user-details!
+                                           channel-exists? create-channel!
+                                           lookup-host parse-command
+                                           user-on-channel?]]
+            [irc-server.socket :refer [send socket-map]]
             [irc-server.state :refer [->State]])
   (:import [java.net Socket InetAddress ServerSocket Socket SocketImpl]))
 
@@ -18,13 +19,13 @@
 (defn setup [sock]
   (let [new-listener (ServerSocket. port)
         new-client (Socket. "localhost" port)
-        new-sock (.accept new-listener)]
+        new-sock (socket-map (.accept new-listener))]
     (reset! listener new-listener)
     (reset! client new-client)
     (reset! sock new-sock)))
 
 (defn teardown [sock]
-  (.close @sock)
+  (.close (get @sock :raw))
   (.close @client)
   (.close @listener)
   (reset! sock nil)
@@ -39,17 +40,20 @@
     (is (= (lookup-host @sock) "localhost"))
     (is (= (add-nick! "foo" @sock (state :users))
            "foo"))
-    (is (testing "Testing mutable state"
-          (not= (add-nick! "foo" @sock (state :users))
-                "foo")))
+    (is (not= (add-nick! "foo" @sock (state :users))
+              "foo"))
+    (is (= (assign-user-details! ["foo" "bar" "baz" ":qux quux"] "foo" (state :users))
+           {"foo" {:realname "qux quux", :username "foo"}}))
     (teardown sock)))
 
 (deftest parse-commands
   (is (= (parse-command "NICK my-nick" "user")
-         {:cmd ["NICK" "my-nick"]
-          :user "user"})
-      (= (parse-command "QUIT A default quit message." "user")
-         {:cmd ["QUIT" "A default quit message."]
+         {:cmd "NICK"
+          :args ["my-nick"]
+          :user "user"}))
+  (is (= (parse-command "QUIT A default quit message." "user")
+         {:cmd "QUIT"
+          :args "A default quit message."
           :user "user"})))
 
 (deftest join-channel

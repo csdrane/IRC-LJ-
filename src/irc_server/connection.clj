@@ -1,8 +1,8 @@
 (ns irc-server.connection
   (:refer-clojure :exclude [send])
-  (:require [irc-server.socket :refer [send receive]]
+  (:require [irc-server.socket :refer [get-host-name receive send]]
             [clojure.core.async :refer [<! <!! >! >!! alts! chan go go-loop]]
-            [clojure.string :refer [split]]
+            [clojure.string :as str :refer [split]]
             [taoensso.timbre :as timbre]))
 
 (timbre/refer-timbre)
@@ -16,10 +16,23 @@
 (defn lookup [command]
   (get command-table (keyword command)))
 
+;; TODO write tests
+(defn parse-cmd-user [args]
+  (let [split-args (split args #" ")
+        head (into [] (take 3 split-args))
+        rest-args (str/join " " (drop 3 split-args))]
+    (conj head rest-args)))
+
+(defn parse-args [[cmd args]]
+  (condp = cmd
+    "QUIT" (identity args)
+    "USER" (parse-cmd-user args)
+    (split args #" ")))
+
 ;; FIX not parsing multiple args correctly
 (defn parse-command [msg user]
-  (let [[command args & more] (split msg #" " 2)]
-    {:cmd [command args] :user user}))
+  (let [[command args :as all] (split msg #" " 2)]
+    {:cmd command :args (parse-args all) :user user}))
 
 (defn dispatch-command 
   ([[command args]]
@@ -39,11 +52,11 @@
            (valid? nick))
     (dosync
      (alter state assoc nick {})
-     (send sock (str "Your nick has been set to " nick "\n"))
+     (spy (send sock (str "Your nick has been set to " nick "\n")))
      nick)
     (do
-      (send sock (str "Your nick " nick " is already taken and/or invalid. "
-                      "Please pick another.\n"))
+      (spy (send sock (str "Your nick " nick " is already taken and/or invalid. "
+                       "Please pick another.\n")))
       nil)))
 
 (defn channels 
@@ -71,9 +84,9 @@
   (contains? @(get state :channels) chan))
 
 ;; TODO
-(defn send-error
-  "Send error code and args to dispatcher. Args represents a hashmap
-  containing required fields for a particular error code."
+(defn cmd-response
+  "Send command code and args to dispatcher. Args represents a hashmap
+  containing required fields for a particular command code."
   [code args])
 
 (defn add-channel-to-user!
@@ -118,7 +131,7 @@
   (info (str "User attempted to join channel " chan))
   (let [user nil]                       ; FIX temporary
     (cond
-      (user-on-channel? user chan state) (send-error 443 {:user user :chan chan})
+      (user-on-channel? user chan state) (cmd-response 443 {:user user :chan chan})
                                         ;what about when not invited / key req'd?
                                         ;those send-channel-* statements need to be conditional
       (channel-exists? chan state) (do (add-channel-to-user! user chan)
@@ -140,49 +153,62 @@
   "Attempts lookup of user's host. Returns textual representation of
   IP if hostname not found."
   [sock]
-  (let [host (.getHostName (.getInetAddress sock))]
-    (send sock (str "Your host has been identified as " host "\n"))
+  (let [host (get-host-name sock)]
+    (spy (send sock (str "Your host has been identified as " host "\n")))
     host))
 
 (defn assign-nick [host sock state]
   (try (loop []
-                                   ; username is nil as not yet assigned
-         (let [{[command nick] :cmd} (parse-command (receive sock) nil)]
-
+         ;; parse-command requires a nick as argument. nick is nil as not yet assigned.
+         (let [in (parse-command (receive sock) nil)
+               {cmd :cmd [nick & _] :args} in]
+           (debug in)
            (cond
-             (not= command "NICK") (do (send sock (str "Invalid command: " command "\n"))
-                                       (recur))
-             (not (valid? nick)) (do (send sock (str "Invalid nick: " nick "\n"))
+             (not= cmd "NICK") (do (spy (send sock (str "Invalid command: " cmd "\n")))
+                                   (recur))
+             (not (valid? nick)) (do (spy (send sock (str "Invalid nick: " nick "\n")))
                                      (recur))
-             :else (add-nick! nick sock state))))
+             :else (spy (add-nick! nick sock state)))))
        (catch Exception e (str "Exception: " e))))
 
 (defn assign-user-details!
-  ; Nick is first argument of args
-  [args state])
+  ;; Function assumes that input has been validated by
+  ;; assign-user-details. username refers to client's username on
+  ;; client's machine. hostname and servername are not used but are
+  ;; part of the spec.
+  [[username hostname servername realname] nick state]
+  (let [realname' (apply str (drop 1 realname)) ; remove colon
+        new {nick {:username username :realname realname'}}]
+    (dosync (alter state #(merge-with merge %1 %2) new))))
 
 (defn assign-user-details [nick sock state]
   (try (loop []
          ;; TODO
          ;; parse-command needs to allow last argument (which must
          ;; begin with a colon (':'), to contain multiple words
-         (let [{[command & args] :cmd} (parse-command (receive sock) nick)]
+         (println "Inside assign-user-details")
+         (let [in (parse-command (receive sock) nick)
+               {cmd :cmd args :args} in]
+           (println (str "In: " in))
            (cond
-             (not= command "USER") (do (send sock (str "Invalid command: " command "\n"))
-                                       (recur))
+             (not= cmd "USER") (do (spy (send sock (str "Invalid command: " cmd "\n")))
+                                   (recur))
              (or (not= (count args) 4)
                  (not= (first (nth args 3)) ; first character of last
                        \:))
-             (do (send sock (str "Invalid arguments supplied to command: " command "\n"))
+             (do (spy (send sock (str "Invalid arguments supplied to command: " cmd "\n")))
                  (recur))
-             :else (assign-user-details! nick args state))))
+             :else (assign-user-details! args nick state))))
        (catch Exception e (str "Exception: " e)))) ; argument must begin with a \:
 
-;; FIX
+;; TODO refactor using send-error
 (defn motd
   "Send MOTD to new connection."
   [sock]
-  (send sock "Hello, world!"))
+  (spy (do (send sock ":servername 001 csd_ :Welcome to the server!\r\n")
+           (send sock ":servername 002 csd_ :Enjoy your time at the server!\r\n")
+           (send sock ":servername 003 csd_ :This server was created XYZ\r\n")
+           (send sock ":servername 004 csd_ :This sever has modes abc\r\n"))))
 
 (defn update-clients
   "Receive from Coordinator da message destined for client. Sends to
@@ -252,9 +278,9 @@
   "Performs connection actions (e.g. host lookup, nick acquisition,
   etc.) and then places client in connection loop."
   [sock state server-chan]
+  (send sock "NOTICE * :*** Now attempting to look up your host\n")
   (let [host (lookup-host sock)
-        nick (assign-nick host sock (state :users))
-        user (assign-user-details nick sock (state :users))]
+        nick (spy (assign-nick host sock (state :users)))
+        user (spy (assign-user-details nick sock (state :users)))]
     (spy (motd sock))
     (client-listener nick sock state server-chan)))
-

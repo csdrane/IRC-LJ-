@@ -2,7 +2,7 @@
   (:refer-clojure :exclude [send])
   (:require [irc-server.connection :refer [server-coordinator new-connect]]
             [irc-server.logging :as logging]
-            [irc-server.socket :refer [receive send]]
+            [irc-server.socket :refer [receive send socket-map]]
             [irc-server.state :refer [->State]]
             [clojure.java.io :as io]
             [clojure.core.async :refer [>! <! chan go]]
@@ -14,9 +14,10 @@
 
 (defn get-connection [port state server-chan]
   (with-open [server-sock (ServerSocket. port)
-              sock (.accept server-sock)]
-;; TODO new connection should spawn a new thread
-    (new-connect sock state server-chan)))
+              accept-sock (.accept server-sock)]
+    ;; TODO new connection should spawn a new thread
+    (let [sock (socket-map accept-sock)]
+      (new-connect sock state server-chan))))
 
 ;; We wrap get-connection in try/catch to prevent a SocketException from being thrown
 ;; when a client unexpectedly disconnects.
