@@ -4,6 +4,7 @@
             [irc-server.connection :refer [add-nick! add-channel-to-user!
                                            assign-nick assign-user-details!
                                            channel-exists? create-channel!
+                                           join-channel
                                            lookup-host parse-command
                                            user-on-channel?]]
             [irc-server.socket :refer [send socket-map]]
@@ -32,7 +33,7 @@
   (reset! client nil)
   (reset! listener nil))
 
-(deftest new-connect
+(deftest new-connect-test
   (let [state (->State (ref {})
                        (ref {}))
         user {:host nil :nick nil}]
@@ -42,11 +43,19 @@
            "foo"))
     (is (not= (add-nick! "foo" @sock (state :users))
               "foo"))
-    (is (= (assign-user-details! ["foo" "bar" "baz" ":qux quux"] "foo" (state :users))
-           {"foo" {:realname "qux quux", :username "foo"}}))
+    (is (= (update-in (assign-user-details!
+                       ["foo" "bar" "baz" ":qux quux"]
+                       "foo"
+                       "localhost"
+                       (state :users))
+                      ["foo"] dissoc  :socket)
+           {"foo" {:realname "qux quux"
+                   :username "foo"
+                   :channels #{}
+                   :host "localhost"}}))
     (teardown sock)))
 
-(deftest parse-commands
+(deftest parse-command-test
   (is (= (parse-command "NICK my-nick" "user")
          {:cmd "NICK"
           :args ["my-nick"]
@@ -56,7 +65,7 @@
           :args "A default quit message."
           :user "user"})))
 
-(deftest join-channel
+(deftest join-channel-test
   (let [state (->State (ref {"user" {:socket nil
                                      :hostname nil
                                      :channels #{}
@@ -99,7 +108,12 @@
           (not= (channel-exists? "bar" new-state))))
     (testing "user-on-channel?"
       (is (true? (user-on-channel? "user" "foo" new-state))
-          (false? (user-on-channel? "user" "bar" new-state))))))
+          (false? (user-on-channel? "user" "bar" new-state))))
+    (testing "join-channel logic"
+      (is (= (join-channel ["foo"] "user" new-state)
+             :user-already-on-channel))
+      (is (= (join-channel ["foo"] "not-user" new-state)
+             :add-channel-to-user!)))))
 
 
 

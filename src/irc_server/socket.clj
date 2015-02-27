@@ -29,6 +29,7 @@
   "Send the given string message out over the given socket."
   [{writer :wtr} msg]
   (try (spy (do (.write writer msg)
-                (.flush writer)))
+                (.flush writer)
+                (println (str "Out: " msg))))
        (catch Exception e (str "Exception: " e))))
 
