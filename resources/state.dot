@@ -24,8 +24,8 @@ digraph g {
            shape = "record"
          ];
   "channels" [
-              label = "{{<f0> :channel_name | <f1> :attrs | <f2> :users } |
-                        {<f3> string | <f4> \{attrs\} | <f5> \{nick\} }}",                                 shape = "record"
+              label = "{{<f0> :channel_name | <f1> :attrs | <f2> :users | <f6> :topic} |
+                        {<f3> string | <f4> \{attrs\} | <f5> \{nick\} | <7> string}}",                                 shape = "record"
               ];
   "channel_attrs" [
                    label = "{{<f0> :t | <f1> :l | <f2> :k | etc.} | 
