@@ -9,4 +9,5 @@
                  [commons-io/commons-io "2.4"]]
   :main ^:skip-aot irc-server.core
   :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}})
+  :profiles {:uberjar {:aot :all}}
+  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
