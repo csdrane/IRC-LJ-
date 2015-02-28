@@ -9,7 +9,19 @@
 
 (declare add-nick! join-channel)
 
+(def CRLF "\r\n")
+
 (defn coll->str [coll] (str/trim (reduce #(str %2 \space %1) "" coll)))
+
+(defn get-username [state user]
+  (get-in @(get state :users) [user :username]))
+
+(defn get-user-hostname [state user]
+  (get-in @(get state :users) [user :host]))
+
+(defn nick-user-host
+  [state user]
+  (str user \! \~ (get-username state user) \@ (get-user-hostname state user)))
 
 (defn channels 
   "Returns channels hashmap from state."
@@ -29,7 +41,6 @@
     "USER" (parse-cmd-user args)
     (split args #" ")))
 
-;; FIX not parsing multiple args correctly
 (defn parse-command [msg user]
   (let [[command args :as all] (split msg #" " 2)]
     {:cmd command :args (parse-args all) :user user}))
@@ -62,7 +73,7 @@
 
 (defn cmd-resp-332
   "RPL_TOPIC
-   \"<channel> :<topic>\"
+   <channel> :<topic>
 
   When sending a TOPIC message to determine the channel
   topic, one of two replies is sent. If the topic is set, RPL_TOPIC is
@@ -76,8 +87,8 @@
 
 (defn cmd-resp-353
   "RPL_NAMREPLY
-  \"( = / * / @ ) <channel>
-    :[ @ / + ] <nick> *( \" \" [ @ / + ] <nick> ) 
+  ( = / * / @ ) <channel>
+  :[ @ / + ] <nick> *( \" \" [ @ / + ] <nick> )
 
   @ is used for secret channels, * for private channels, and = for
   others (public channels)."
@@ -92,7 +103,7 @@
 
 (defn cmd-resp-366
   "RPL_ENDOFNAMES
-  \"<channel> :End of NAMES list\"
+  <channel> :End of NAMES list
 
   To reply to a NAMES message, a reply pair consisting of
   RPL_NAMREPLY and RPL_ENDOFNAMES is sent by the server back to the
@@ -109,7 +120,7 @@
 
 (defn cmd-resp-443
   "ERR_USERONCHANNEL
-  \"<user> <channel> :is already on channel\"
+  <user> <channel> :is already on channel
 
   Returned when a client tries to invite a user to a channel they are
   already on."
@@ -124,11 +135,11 @@
   containing required fields for a particular command code."
   [code args sock]
   (let [f (condp = code
-            331 cmd-resp-331
-            332 cmd-resp-332
-            353 cmd-resp-353
-            366 cmd-resp-366
-            443 cmd-resp-443
+            :RPL-NOTOPIC cmd-resp-331
+            :RPL-TOPIC cmd-resp-332
+            :RPL-NAMREPLY cmd-resp-353
+            :RPL-ENDOFNAMES cmd-resp-366
+            :ERR-USERONCHANNEL cmd-resp-443
             (throw (Exception. "Command code not recognized!")))
         msg (f args)]
     (spy (send sock msg))))
@@ -150,6 +161,57 @@
                                      :v true}}}]
     (dosync (alter (get state :channels) assoc chan chan-template)
             (alter (get state :users) update-in [user :channels] conj chan))))
+
+(defn update-modes
+  "Parses list of args that have already been validated, and then
+  merges into attrs map.
+
+  Currently only supports + and -, with no modeparameters allowed."
+  [attrs-map [sign & attrs]]
+  (let [bool (if (= sign \+) true false)]
+    (loop [attrs-map attrs-map
+           attrs attrs]
+      (if (empty? attrs)
+        attrs-map
+        (let [new-map (assoc attrs-map ((comp keyword str first) attrs) bool)]
+          (recur new-map (rest attrs)))))))
+
+(defn trim-user
+  [u]
+  (str/replace u #"[@+]" ""))
+
+;; TODO
+(defn set-mode-user
+  [[user & args] state]
+  (let [user' (trim-user user)
+        s (state->sock user' state)]
+    [{:fn :send :args [s (str :undefined) ]}]))
+
+(defn set-mode-channel!
+  [chan-map {channels :channels}]
+  (dosync (alter channels #(merge-with merge %1 %2) chan-map)))
+
+;; TODO
+(defn set-mode-channel
+  [[chan & args] state]
+  (cond
+    ;; (not (user-on-channel?)) (cmd-respose :ERR-USERNOTINCHANNEL)
+    ;; (not (user-is-channel-op?)) (cmd-response :ERR-CHANOPRIVSNEEDED)
+    ;; (not (valid-mode-params?)) (cmd-response :ERR-NEEDMOREPARAMS)
+    ;; (not (valid-modes?)) (cmd-response :ERR-UNKNOWNMODE)
+    :else (let [old-attrs (get-in @(channels state) [chan :attrs])
+                new-attrs (update-modes old-attrs (first args))
+                new {chan {:attrs new-attrs}}]
+            [{:fn :set-mode-channel! :args [new state]}])))
+
+(defn set-mode
+  "Target may be a user or a channel."
+  [[target & args :as all] _ state]
+  (debug (str "set-mode" all state))
+  (if (= (first target)
+         \#)
+    (set-mode-channel all state)
+    (set-mode-user all state)))
 
 (defn join-channel
   "First, checks if user is already on channel. If so, does nothing.
@@ -175,43 +237,62 @@
   (info (str "User attempted to join channel " chan))
   (let [s (state->sock user state)]
     (cond
-      (user-on-channel? user chan state) (do (cmd-response 443 {:user user :chan chan} s)
-                                             :user-already-on-channel)
-      (channel-exists? chan state) (do (add-channel-to-user! user chan state)
-                                       (cmd-response 332 {:user user
-                                                          :chan chan
-                                                          :channels @(channels state)} s)
-                                       (cmd-response 353 {:user user
-                                                          :chan chan
-                                                          :channels @(channels state)} s)
-                                       (cmd-response 366 {:chan chan} s)
-                                       :add-channel-to-user!)
-      :else (do (create-channel! chan user state)
-                ;; (cmd-response 331 {:user user
-                ;;                    :chan chan} s)
-                ;; (cmd-response 353 {:user user
-                ;;                    :chan chan
-                ;;                    :channels @(channels state)} s)
-                ;;                (cmd-response 366 {:chan chan} s)
-                (send s ":csd_!~user@localhost JOIN #j\r\n")
-                (send s ":servername MODE #j +ns\r\n")
-                (send s ":servername 353 csd_ @ #j :@csd_\r\n")
-                (send s ":servername 366 csd_ #j :End of /NAMES list.\r\n")))))
+      ;; FYI may want to introduce macro to create hashmaps
+      (user-on-channel? user chan state) [{:fn :cmd-response
+                                           :args [:ERR-USERONCHANNEL {:user user :chan chan} s]}]
+      (channel-exists? chan state) [{:fn :add-channel-to-user! :args [user chan state]}
+                                    {:fn :cmd-response
+                                     :args [:RPL-TOPIC {:user user
+                                                        :chan chan
+                                                        :channels @(channels state)} s]}
+                                    {:fn :cmd-response
+                                     :args [:RPL-NAMREPLY {:user user
+                                                           :chan chan
+                                                           :channels @(channels state)} s]}
+                                    {:fn :cmd-response
+                                     :args [:RPL-ENDOFNAMES {:chan chan} s]}]
+      :else [{:fn :create-channel! :args [chan user state]}
+             {:fn :send :args [s (str \: (nick-user-host state user) \space "JOIN" \space chan "\r\n")]}
+   ;;          {:fn :send :args [s ":servername MODE #j +ns\r\n"]}
+             {:fn :send :args [s ":servername 353 csd_ @ #j :@csd_\r\n"]}
+             {:fn :send :args [s ":servername 366 csd_ #j :End of /NAMES list.\r\n"]}]
+      ;; add back in eventually...
+      ;; (cmd-response :RPL-NAMREPLY {:user user
+      ;;                    :chan chan
+      ;;                    :channels @(channels state)} s)
+      ;; (cmd-response 366 {:chan chan} s)
+      )))
 
 (def command-table
-  {:NICK add-nick!
+  {:MODE set-mode
+   :NICK add-nick!
    :JOIN join-channel})
 
-(defn lookup [command]
-  (get command-table (keyword command)))
+(def side-effects-table
+  {:add-channel-to-user! add-channel-to-user!
+   :cmd-response cmd-response
+   :create-channel! create-channel!
+   :println println
+   :send send
+   :set-mode-channel! set-mode-channel!})
+
+(defn lookup [table command]
+  (get table (keyword command)))
+
+(defn exec-side-effects
+  [[{fn :fn args :args} & more]]
+  (println fn args)
+  (apply (lookup side-effects-table fn) args)
+  (if-not (empty? more)
+    (recur more)))
 
 (defn dispatch-command 
-  ([command args]
-   (if-let [f (lookup command)]
-     (spy (f args))))
   ([command args user state]
-   (if-let [f (lookup command)]
-     (spy (f args user state)))))
+   (if-let [f (lookup command-table command)]
+     (do (debug (str "Evaluating dispatched command " command))
+         (let [side-effects (spy (f args user state))]
+           (exec-side-effects side-effects)))
+     (debug (str "Client attempted to call command " command " but it's not in the lookup table.")))))
 
 (defn valid? [nick]
   (re-matches #"[A-Za-z]{1}[A-Za-z0-9_-`\\\[\]\{\}^\|]{0,11}" nick))
@@ -237,10 +318,6 @@
   state."
   [chan state]
   (contains? (channels state) chan))
-
-(defn check-ident
-  "May not implement."
-  [sock])
 
 (defn lookup-host
   "Attempts lookup of user's host. Returns textual representation of
@@ -294,7 +371,7 @@
              :else (assign-user-details! args nick host state))))
        (catch Exception e (str "Exception: " e)))) ; argument must begin with a \:
 
-;; TODO refactor using send-error
+;; TODO refactor using cmd-response
 (defn motd
   "Send MOTD to new connection."
   [sock]
@@ -321,6 +398,7 @@
   "Receives command from client thread and evaluates."
   [state c]
   (let [{cmd :cmd args :args user :user} (<!! c)]
+    (println (str "exec-client-cmds received " cmd args user))
     (spy (dispatch-command cmd args user state))))
 
 (defn server-coordinator
